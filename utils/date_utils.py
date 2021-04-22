@@ -34,12 +34,40 @@ class DateUtils(object):
         return [x.strftime("%Y-%m-%d") if x.weekday() < 5 else (x + timedelta(days=7-x.weekday())).strftime("%Y-%m-%d") for x in [ts,te,ps,pe]]
     
     @classmethod
-    def create_weekly_training_range(self,timeline,year,week,training_years):
+    def create_quarterly_training_range_rec(self,year,quarter,training_years,gap):
+        ts = datetime(year - training_years,3 * quarter - 2,1)
+        te = datetime(year,3 * quarter - 2,1) - timedelta(days=1)
+        ps = datetime(year,3 * quarter - 2,1)
+        end_month = 3 * quarter + 1
+        if end_month > 12:
+            pe = datetime(year,12,31)
+        else:
+            pe = datetime(year,end_month,1) - timedelta(days=1)
+        return [x.strftime("%Y-%m-%d") if x.weekday() < 5 else (x + timedelta(days=7-x.weekday())).strftime("%Y-%m-%d") for x in [ts,te,ps,pe]]
+
+    @classmethod
+    def create_weekly_training_range(self,timeline,year,quarter,training_years):
+        week = (quarter-1) * 12 + 1
+        last_week = quarter * 12 + 1
         current_week = timeline[(timeline["week"] == week) & (timeline["year"] == year)]
+        last_week = timeline[(timeline["week"] == last_week) & (timeline["year"] == year)]
         previous_year = timeline[(timeline["week"] == week) & (timeline["year"] == year-training_years)]
         dates = timeline[(timeline["week"] == week) & (timeline["year"] == year)]
         ts = previous_year.iloc[0]["date"]
         te = current_week.iloc[0]["date"] - timedelta(days=1)
         ps = current_week.iloc[0]["date"]
-        pe = current_week.iloc[len(current_week)-1]["date"]
+        pe = last_week.iloc[0]["date"]
+        return [x.strftime("%Y-%m-%d") if x.weekday() < 5 else (x + timedelta(days=7-x.weekday())).strftime("%Y-%m-%d") for x in [ts,te,ps,pe]]
+    
+    @classmethod
+    def create_weekly_training_range_rec(self,timeline,year,week,training_years):
+        current_week = timeline[(timeline["week"] == week) & (timeline["year"] == year)]
+        previous_year = timeline[(timeline["week"] == week) & (timeline["year"] == year-training_years)]
+        dates = timeline[(timeline["week"] == week) & (timeline["year"] == year)]
+        week_text = "{}-{}".format(year,week)
+        previous_week_text = "{}-{}".format(year,week-1)
+        ts = previous_year.iloc[0]["date"]
+        te = datetime.strptime(previous_week_text + "-1","%Y-%W-%w")
+        ps = datetime.strptime(previous_week_text + "-1","%Y-%W-%w")
+        pe = ps + timedelta(days=4)
         return [x.strftime("%Y-%m-%d") if x.weekday() < 5 else (x + timedelta(days=7-x.weekday())).strftime("%Y-%m-%d") for x in [ts,te,ps,pe]]

@@ -9,7 +9,7 @@ class PredictorPreprocessor(object):
         self.ticker = ticker
     
     def fundamental_preprocess(self,data):
-        drop_columns = ["quarter","year","ticker","adjclose"]
+        drop_columns = ["year","ticker","adjclose"]
         features = data.drop(drop_columns,axis=1,errors="ignore").copy()
         features.fillna(0,inplace=True)
         num_pipeline = Pipeline([

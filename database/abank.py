@@ -53,3 +53,12 @@ class ABank(IBank):
         except Exception as e:
             print(self.database_name,table_name,str(e))
             return None
+    
+    def set_index(self,table_name,index_col):
+        try:
+            db = self.client[self.database_name]
+            table = db[table_name]
+            table.create_index([(index_col,-1)])
+        except Exception as e:
+            print(self.database_name,table_name,str(e))
+            return None     
