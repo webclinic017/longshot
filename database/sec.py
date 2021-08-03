@@ -85,6 +85,16 @@ class SEC(ABank):
             print(self.database_name, "sub data pull",str(e))
             return None
     
+    def retrieve_text_filing_data(self,ticker):
+        try:
+            db = self.client[self.database_name]
+            table = db["sec_text_filings"]
+            data = table.find({"ticker":ticker},show_record_id=False)
+            return pd.DataFrame(list(data))
+        except Exception as e:
+            print(self.database_name, "sub data pull",str(e))
+            return None
+    
     def retrieve_industry_tickers(self,industry):
         try:
             db = self.client[self.database_name]

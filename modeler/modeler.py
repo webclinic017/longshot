@@ -10,6 +10,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.multioutput import MultiOutputClassifier
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.naive_bayes import GaussianNB
 import numpy as np
@@ -19,6 +20,8 @@ import tensorflow as tf
 import xgboost as xgb
 import warnings
 import os
+
+from xgboost.sklearn import XGBClassifier
 warnings.simplefilter(action='ignore', category=Warning)
 tf.compat.v1.logging.set_verbosity(
     0
@@ -27,42 +30,48 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 class Modeler(object):
         
     @classmethod
-    def classification(self,data,tf,deep):
+    def classification(self,data,tf,deep,xgb,sk,multioutput):
         results = []
-        sk_result = self.sk_classify(data,deep)
-        xg_result = self.xgb_classify(data)
+        data["y"] = data["y"].drop("y",axis=1,errors="ignore")
+        if sk:
+            sk_result = self.sk_model(data,deep)
+            results.extend(sk_result)
+        if xgb:
+            xg_result = self.xgb_classify(data,multioutput)
+            results.append(xg_result)
         if tf:
             tf_result = self.tf_classify(data)
             results.append(tf_result)
-        results.extend(sk_result)
-        results.append(xg_result)
         df = pd.DataFrame(results)
         df["model_type"] = "classification"
-        return df
+        return df.sort_values("score",ascending=False).iloc[0]
     
     @classmethod
-    def regression(self,data,ranked,tf,deep):
+    def regression(self,data,ranked,tf,xgb,sk,deep):
         results = []
-        sk_result = self.sk_model(data,deep)
-        xg_result = self.xgb_model(data)
+        data["y"] = data["y"].drop("y_class",axis=1,errors="ignore")
+        if sk:
+            sk_result = self.sk_model(data,deep)
+            results.extend(sk_result)
+        if xgb:
+            xg_result = self.xgb_model(data)
+            results.append(xg_result)
         if tf:
             tf_result = self.tf_model(data)
             results.append(tf_result)
-        results.extend(sk_result)
-        results.append(xg_result)
         df = pd.DataFrame(results)
         if ranked:
             df["model_type"] = "ranked"
         else:
             df["model_type"] = "regression"
-        return df
+        return df.sort_values("score",ascending=False).iloc[0]
     
     @classmethod
     def xgb_model(self,data):
         try:
             params = {"booster":["gbtree", "gblinear", "dart"]}
             X_train, X_test, y_train, y_test = self.shuffle_split(data)
-            gs = GridSearchCV(xgb.XGBRegressor(objective="reg:squarederror"), param_grid=params,scoring="r2")
+            gs = GridSearchCV(xgb.XGBRegressor(objective="reg:squarederror" ), param_grid=params,scoring="r2")
             gs.fit(X_train,y_train)
             score = r2_score(gs.predict(X_test),y_test)
             model = gs.best_estimator_
@@ -71,16 +80,21 @@ class Modeler(object):
             return {"api":"xgb","model":str(e),"score":9999}
     
     @classmethod
-    def xgb_classify(self,data):
+    def xgb_classify(self,data,multioutput):
         try:
             params = {"booster":["gbtree", "gblinear", "dart"]}
             X_train, X_test, y_train, y_test = self.shuffle_split(data)
-            gs = GridSearchCV(xgb.XGBClassifier(objective="binary:logistic",eval_metric = "logloss"), param_grid=params,scoring="accuracy")
-            ytrain = LabelEncoder().fit(y_train).transform(y_train)
-            gs.fit(X_train,y_train)
-            ytest = LabelEncoder().fit(y_test).transform(y_test)
-            score = accuracy_score(gs.predict(X_test),ytest)
-            model = gs.best_estimator_
+            if multioutput:
+                gs = MultiOutputClassifier(XGBClassifier(eval_metric="logloss"))
+                gs.fit(X_train,y_train)
+                model = gs
+            else:
+                gs = GridSearchCV(xgb.XGBClassifier(objective="binary:logistic",eval_metric = "logloss"), param_grid=params,scoring="accuracy")
+                y_train = LabelEncoder().fit(y_train).transform(y_train)
+                gs.fit(X_train,y_train)
+                y_test = LabelEncoder().fit(y_test).transform(y_test)
+                model = gs.best_estimator_
+            score = accuracy_score(gs.predict(X_test),y_test)
             return {"api":"xgb","model":model,"score":score}
         except Exception as e:
             return {"api":"xgb","model":str(e),"score":-9999}
@@ -88,16 +102,15 @@ class Modeler(object):
     @classmethod
     def sk_model(self,data,deep):
         stuff = {
-            "sgd" : {"model":SGDRegressor(),"params":{"loss":["squared_loss","huber"]
+            "sgd" : {"model":SGDRegressor(fit_intercept=True),"params":{"loss":["squared_loss","huber"]
                                                             ,"learning_rate":["constant","optimal","adaptive"]
                                                             ,"alpha" : [0.0001,0.001, 0.01, 0.1, 0.2, 0.5, 1]}},
-            "r" : {"model":RidgeCV(alphas=[0.0001,0.001, 0.01, 0.1, 0.2, 0.5, 1]),"params":{}},
-            "lr" : {"model":LinearRegression(),"params":{"fit_intercept":[True,False]}}
+            "r" : {"model":RidgeCV(alphas=[0.0001,0.001, 0.01, 0.1, 0.2, 0.5, 1],fit_intercept=True),"params":{}},
+            "lr" : {"model":LinearRegression(fit_intercept=True),"params":{"fit_intercept":[True,False]}}
         }
         X_train, X_test, y_train, y_test = self.shuffle_split(data)
         results = []
         for regressor in stuff:
-            print(regressor)
             try:
                 model = stuff[regressor]["model"].fit(X_train,y_train)
                 params = stuff[regressor]["params"]
@@ -119,7 +132,7 @@ class Modeler(object):
         return results
 
     @classmethod
-    def sk_classify(self,data,deep):
+    def sk_classify(self,data,deep,multioutput):
         results = []
         vc = VotingClassifier(estimators=[("sgdc" , SGDClassifier(early_stopping=True)),
                 ("ridge" , RidgeClassifier()),
@@ -147,8 +160,10 @@ class Modeler(object):
             try:
                 model = models[classifier]["model"]
                 params = models[classifier]["params"]
-                if classifier == "vc" or not deep:
+                if classifier == "vc" or not deep or not multioutput:
                     model.fit(X_train,y_train)
+                if multioutput:
+                    model = MultiOutputClassifier(model).fit(X_train,y_train)
                 else:
                     gs = HalvingGridSearchCV(model,params,cv=5,scoring="accuracy")
                     gs.fit(X_train,y_train)
@@ -164,13 +179,13 @@ class Modeler(object):
     @classmethod
     def tf_model(self,refined):
         tf.keras.backend.set_floatx('float64')
-        callbacks = tf.keras.callbacks.EarlyStopping(monitor="loss",patience=2,mode="min")
+        callbacks = tf.keras.callbacks.EarlyStopping(monitor="loss",patience=5,mode="min")
         try:
             model = tf.keras.models.Sequential([
             tf.keras.layers.Dense(units = 256,activation="relu"),
             tf.keras.layers.Dense(units = 256,activation="relu"),
             tf.keras.layers.Dense(units = 1)
-                # tf.keras.layers.Dense(units = 256,activation="relu"),
+            # tf.keras.layers.Dense(units = 256,activation="relu"),
             # tf.keras.layers.LSTM(256,return_sequences=True),
             # tf.keras.layers.Dense(1)
             ])

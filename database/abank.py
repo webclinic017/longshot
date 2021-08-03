@@ -42,7 +42,7 @@ class ABank(IBank):
             data = table.find(query,show_record_id=False)
             return pd.DataFrame(list(data))
         except Exception as e:
-            print(self.database_name, "pulling models",str(e))
+            print(self.database_name, table,str(e))
             return None
 
     def drop_table(self,table_name):
@@ -61,4 +61,17 @@ class ABank(IBank):
             table.create_index([(index_col,-1)])
         except Exception as e:
             print(self.database_name,table_name,str(e))
-            return None     
+            return None   
+
+    def reset(self):
+        try:
+            self.db.connect()
+            db = self.client[self.database_name]
+            collections = db.list_collection_names()
+            for collection in collections:
+                table = db[collection]
+                table.drop()
+            self.db.close()
+        except Exception as e:
+            print(self.database_name,str(e))
+            return None  
